@@ -1,0 +1,10 @@
+Django>=6.0
+djangorestframework>=3.15
+django-cors-headers>=4.0
+django-filter>=24.0
+psycopg2-binary>=2.9
+Pillow>=10.0
+requests>=2.31
+beautifulsoup4>=4.12
+pandas>=2.0
+openpyxl>=3.1

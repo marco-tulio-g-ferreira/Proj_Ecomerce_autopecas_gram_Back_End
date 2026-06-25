@@ -1,0 +1,78 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+.env.*
+env/
+.venv/
+.venv.bak/
+env.bak/
+
+# Database files
+db.sqlite3
+*.sqlite3
+*.sqlite3-journal
+*.db
+
+# Django media and static files
+media/
+static/
+
+# Secrets & environment variables
+.env
+.env.local
+.env.*.backup
+SECRET_KEY
+config.json
+*.key
+*.pem
+*.crt
+*.p12
+
+# IDE / editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+
+# OS generated files
+.DS_Store
+.Spotlight-V100
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Django specific
+*.log
+logs/
+*.log.*
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+*.manifest
+*.spec
+
+# Cache files
+.cache/
+.hypothesis/
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+*.log
+
+# OS specific
+.DS_Store
+._*
+.Spotlight-V100
+._*
+.Spotlight-V100?
