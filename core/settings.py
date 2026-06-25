@@ -43,7 +43,7 @@ MIDDLEWARE = [
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
 CORS_ALLOW_HEADERS = ["accept", "authorization", "content-type", "user-agent", "x-csrftoken", "x-requested-with"]
-CORS_ALLOWED_ORIGINS=["https://seu-projeto-na-vercel.app"]
+CORS_ALLOWED_ORIGINS=["https://proj-ecomerce-autopecas-gram-front.vercel.app"]
 ROOT_URLCONF = 'core.urls'
 
 TEMPLATES = [
