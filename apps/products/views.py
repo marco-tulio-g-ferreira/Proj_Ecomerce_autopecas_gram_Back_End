@@ -1,5 +1,3 @@
-import json
-import threading
 import uuid
 import django_filters
 from rest_framework import viewsets, views, permissions, status, filters
@@ -10,10 +8,11 @@ from rest_framework.authentication import TokenAuthentication
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.db.models import Count, Q, F
+from django.db.models import Count, F
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
+import threading
 
 # Imports locais
 from .models import Category, Veiculo, Part, Estoque
@@ -21,12 +20,13 @@ from .serializers import AutoPartSerializer, CategorySerializer, VehicleCompatib
 from .constants import MARCAS_SINONIMOS
 from .services import processar_importacao_background, gerar_cobranca_pix
 
-try:
-    from openpyxl import load_workbook
-except ImportError:
-    load_workbook = None
+# --- Configurações de paginação ---
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
-# --- Classe de Filtro ---
+# --- Classes de Filtro ---
 class PartFilter(django_filters.FilterSet):
     min_price = django_filters.NumberFilter(field_name="estoque__preco", lookup_expr='gte')
     max_price = django_filters.NumberFilter(field_name="estoque__preco", lookup_expr='lte')
@@ -37,28 +37,11 @@ class PartFilter(django_filters.FilterSet):
         fields = ['category']
 
 class DebugTokenAuthentication(TokenAuthentication):
+    """Autenticação para ambiente de debug, substituir em produção por algo seguro."""
     def authenticate(self, request):
         return super().authenticate(request)
 
-class StandardResultsSetPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-class PixGerarView(views.APIView):
-    """View integrada para gerar cobrança PIX"""
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        valor = request.data.get('valor')
-        if not valor:
-            return Response({"error": "Valor é obrigatório"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            dados_pix = gerar_cobranca_pix(valor)
-            return Response(dados_pix, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# --- ViewSets ---
 
 class AutoPartViewSet(viewsets.ModelViewSet):
     serializer_class = AutoPartSerializer
@@ -83,22 +66,27 @@ class AutoPartViewSet(viewsets.ModelViewSet):
         try:
             ajuste = request.data.get('quantidade')
             if ajuste is None:
-                return Response({"error": "Campo 'quantidade' obrigatório"}, status=400)
+                return Response({"error": "Campo 'quantidade' obrigatório"}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Atualização atômica no banco de dados
             updated_count = Estoque.objects.filter(produto_id=pk).update(
                 quantidade=F('quantidade') + int(float(ajuste))
             )
 
             if updated_count == 0:
-                return Response({"error": "Estoque não encontrado para este produto"}, status=404)
+                return Response({"error": "Estoque não encontrado para este produto"}, status=status.HTTP_404_NOT_FOUND)
 
             estoque_instance = Estoque.objects.get(produto_id=pk)
             return Response({"status": "sucesso", "estoque": int(estoque_instance.quantidade)})
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_update(self, serializer):
+        # Lógica para remover imagem se o front enviar 'remove_image'
         if self.request.data.get('remove_image') == 'true':
+            # Remove a imagem fisicamente do modelo
+            instance = serializer.instance
+            instance.image.delete(save=False)
             serializer.save(image=None)
         else:
             serializer.save()
@@ -106,6 +94,26 @@ class AutoPartViewSet(viewsets.ModelViewSet):
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all().order_by('name')
     serializer_class = CategorySerializer
+
+class VehicleCompatibilityViewSet(viewsets.ModelViewSet):
+    queryset = Veiculo.objects.all()
+    serializer_class = VehicleCompatibilitySerializer
+
+# --- Views de API (Funcionalidades Extras) ---
+
+class PixGerarView(views.APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        valor = request.data.get('valor')
+        if not valor:
+            return Response({"error": "Valor é obrigatório"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            dados_pix = gerar_cobranca_pix(valor)
+            return Response(dados_pix, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CategoryStatsView(views.APIView):
     authentication_classes = [TokenAuthentication]
@@ -115,10 +123,6 @@ class CategoryStatsView(views.APIView):
         stats = Category.objects.annotate(count=Count('parts')).values('id', 'name', 'count')
         return Response(list(stats))
 
-class VehicleCompatibilityViewSet(viewsets.ModelViewSet):
-    queryset = Veiculo.objects.all()
-    serializer_class = VehicleCompatibilitySerializer
-
 class ImportarProdutosView(views.APIView):
     authentication_classes = [DebugTokenAuthentication]
     parser_classes = (MultiPartParser, FormParser)
@@ -126,13 +130,13 @@ class ImportarProdutosView(views.APIView):
 
     def post(self, request):
         arquivo = request.FILES.get('file')
-        
         if not arquivo:
             return Response({"error": "Nenhum arquivo enviado."}, status=status.HTTP_400_BAD_REQUEST)
 
         task_id = str(uuid.uuid4())
         cache.set(f"import_progress_{task_id}", {"progress": 0, "message": "Iniciando processamento..."}, timeout=3600)
         
+        # Execução em background
         threading.Thread(
             target=processar_importacao_background, 
             args=(arquivo.read(), arquivo.name, task_id)
@@ -143,11 +147,11 @@ class ImportarProdutosView(views.APIView):
     def get(self, request):
         task_id = request.query_params.get('task_id')
         data = cache.get(f"import_progress_{task_id}")
-        
         if not data:
             return Response({"error": "Tarefa não encontrada ou expirada"}, status=status.HTTP_404_NOT_FOUND)
-            
         return Response(data)
+
+# --- Views de Autenticação e Usuário ---
 
 class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
@@ -164,9 +168,9 @@ class LoginView(views.APIView):
                     "token": token.key, 
                     "user": {"email": user.email, "name": user.first_name, "role": "admin" if user.is_staff else "user"}
                 })
-            return Response({"error": "Senha incorreta"}, status=401)
+            return Response({"error": "Senha incorreta"}, status=status.HTTP_401_UNAUTHORIZED)
         except User.DoesNotExist:
-            return Response({"error": "Usuário não encontrado"}, status=404)
+            return Response({"error": "Usuário não encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
 class RegisterView(views.APIView):
     permission_classes = [permissions.AllowAny]
@@ -190,12 +194,8 @@ class ProfileUpdateView(views.APIView):
     
     def put(self, request):
         user = request.user
-        novo_nome = request.data.get('name')
-        novo_email = request.data.get('email')
-        
-        if novo_nome: user.first_name = novo_nome
-        if novo_email: user.email = novo_email
-            
+        user.first_name = request.data.get('name', user.first_name)
+        user.email = request.data.get('email', user.email)
         user.save()
         return Response({"name": user.first_name, "email": user.email})
 
