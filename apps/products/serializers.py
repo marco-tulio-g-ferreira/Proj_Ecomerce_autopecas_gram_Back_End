@@ -30,6 +30,7 @@ class AutoPartSerializer(serializers.ModelSerializer):
         queryset=Veiculo.objects.all(), many=True, required=False
     )
     image = serializers.ImageField(required=False, write_only=True)
+    
     image_url = serializers.SerializerMethodField() 
     category_name = serializers.SerializerMethodField()
     estoque = serializers.SerializerMethodField()
@@ -47,18 +48,25 @@ class AutoPartSerializer(serializers.ModelSerializer):
         ]
 
     def update(self, instance, validated_data):
+        # 1. Extrai a imagem do validated_data para controle manual
         image = validated_data.pop('image', None)
 
+        # 2. Atualiza os campos básicos
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
+        # 3. Lista de campos que serão alterados
         update_fields = list(validated_data.keys())
 
+        # 4. Só atribui e sinaliza a imagem se ela foi enviada no request
         if image:
             instance.image = image
             update_fields.append('image')
         
+        # 5. Salva apenas os campos alterados.
+        # Se 'image' não estiver em update_fields, o Django não dispara o pre_save da imagem.
         instance.save(update_fields=update_fields)
+        
         return instance
 
     def get_image_url(self, obj):

@@ -6,13 +6,14 @@ import io
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import UploadedFile
 import os
-import traceback
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
+    
     class Meta:
         verbose_name = "Categoria"
         verbose_name_plural = "Categorias"
+
     def __str__(self):
         return self.name
 
@@ -23,6 +24,7 @@ class Veiculo(models.Model):
     ano = models.IntegerField()
     motor = models.CharField(max_length=50)
     chassi = models.CharField(max_length=17, unique=True, blank=True, null=True)
+
     def __str__(self):
         return f"{self.marca} {self.modelo} ({self.ano})"
 
@@ -47,12 +49,11 @@ class Part(models.Model):
         else:
             self.codigo_oem = self.codigo_oem.strip()
 
-        # Verifica campos sendo atualizados
+        # Proteção contra erro de Cloudinary:
+        # Só processa imagem se 'image' estiver nos campos a salvar ou for um objeto novo
         update_fields = kwargs.get('update_fields')
         
-        # Só processa imagem se:
-        # 1. for um salvamento completo (update_fields é None) OU
-        # 2. o campo 'image' estiver explicitamente na lista de atualização
+        # Só executa processamento se for um save completo ou se image estiver na lista de update
         if (update_fields is None or 'image' in update_fields) and \
            self.image and hasattr(self.image, 'file') and isinstance(self.image.file, UploadedFile):
             try:
@@ -79,6 +80,7 @@ class LocalEstoque(models.Model):
     nome_local = models.CharField(max_length=100)
     prateleira = models.CharField(max_length=50)
     box = models.CharField(max_length=50)
+
     def __str__(self):
         return f"{self.nome_local} - Prat: {self.prateleira} / Box: {self.box}"
 
@@ -104,6 +106,7 @@ class Movimentacao(models.Model):
     quantidade = models.IntegerField()
     data_hora = models.DateTimeField(auto_now_add=True)
     historico_usuario = models.ForeignKey(User, on_delete=models.PROTECT)
+
     def __str__(self):
         return f"{self.get_tipo_display()} - {self.quantidade}x {self.produto.name}"
 
@@ -114,8 +117,10 @@ class RevisaoDados(models.Model):
     motivo = models.CharField(max_length=255)
     data_criacao = models.DateTimeField(auto_now_add=True)
     resolvido = models.BooleanField(default=False)
+
     class Meta:
         verbose_name = "Revisão de Dados"
         verbose_name_plural = "Revisões de Dados"
+
     def __str__(self):
         return f"{self.nome_produto} - {self.motivo}"
