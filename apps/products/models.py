@@ -4,7 +4,7 @@ from decimal import Decimal
 from PIL import Image
 import io
 from django.core.files.base import ContentFile
-from django.core.files.uploadedfile import UploadedFile  # Import necessário
+from django.core.files.uploadedfile import UploadedFile
 import os
 import traceback
 
@@ -53,8 +53,10 @@ class Part(models.Model):
         else:
             self.codigo_oem = self.codigo_oem.strip()
 
-        # LÓGICA DE CONVERSÃO: Só processa se for um UPLOAD novo
-        if self.image and isinstance(self.image, UploadedFile):
+        # LÓGICA DE CONVERSÃO ROBUSTA
+        # Verificamos se self.image.file existe E se é um upload real (UploadedFile)
+        # Isso impede que o Django tente processar/salvar a imagem novamente em PATCHs que não alteram a foto
+        if self.image and hasattr(self.image, 'file') and isinstance(self.image.file, UploadedFile):
             try:
                 img = Image.open(self.image)
                 if img.format != 'WEBP':
@@ -65,7 +67,7 @@ class Part(models.Model):
                     output.seek(0)
                     
                     nome_base = os.path.splitext(self.image.name)[0]
-                    # Substitui o arquivo temporário pelo convertido antes de salvar
+                    # Reescreve o objeto de arquivo apenas se for um novo upload
                     self.image.file = ContentFile(output.read())
                     self.image.name = f"{nome_base}.webp"
             except Exception as e:
