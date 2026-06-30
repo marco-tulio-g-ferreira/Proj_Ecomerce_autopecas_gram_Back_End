@@ -4,6 +4,7 @@ from decimal import Decimal
 from PIL import Image
 import io
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import UploadedFile  # Import necessário
 import os
 import traceback
 
@@ -52,29 +53,23 @@ class Part(models.Model):
         else:
             self.codigo_oem = self.codigo_oem.strip()
 
-        # Lógica de conversão para WebP
-        if self.image and hasattr(self.image, 'file'):
+        # LÓGICA DE CONVERSÃO: Só processa se for um UPLOAD novo
+        if self.image and isinstance(self.image, UploadedFile):
             try:
-                # Abre a imagem original
                 img = Image.open(self.image)
-                
-                # Só processa se não for já WebP
                 if img.format != 'WEBP':
                     output = io.BytesIO()
-                    
-                    # Converte para RGB (necessário para salvar PNGs com transparência como WebP)
                     if img.mode in ("RGBA", "P"):
                         img = img.convert("RGB")
-                        
                     img.save(output, format='WEBP', quality=85)
                     output.seek(0)
                     
                     nome_base = os.path.splitext(self.image.name)[0]
-                    # Salva o novo arquivo, mantendo a referência da imagem
-                    self.image.save(f"{nome_base}.webp", ContentFile(output.read()), save=False)
+                    # Substitui o arquivo temporário pelo convertido antes de salvar
+                    self.image.file = ContentFile(output.read())
+                    self.image.name = f"{nome_base}.webp"
             except Exception as e:
-                # Imprime o erro no console do Render, mas deixa o fluxo prosseguir
-                print(f"Erro ao converter imagem para WebP: {e}")
+                print(f"Erro ao converter imagem: {e}")
         
         super().save(*args, **kwargs)
 
