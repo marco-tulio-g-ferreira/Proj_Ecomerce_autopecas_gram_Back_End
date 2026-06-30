@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from .models import Part, Category, Veiculo, Estoque
-from decimal import Decimal
 from .constants import MAX_PRICE_THRESHOLD
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -31,7 +30,6 @@ class AutoPartSerializer(serializers.ModelSerializer):
         queryset=Veiculo.objects.all(), many=True, required=False
     )
     image = serializers.ImageField(required=False, write_only=True)
-
     image_url = serializers.SerializerMethodField() 
     category_name = serializers.SerializerMethodField()
     estoque = serializers.SerializerMethodField()
@@ -49,29 +47,22 @@ class AutoPartSerializer(serializers.ModelSerializer):
         ]
 
     def update(self, instance, validated_data):
-        # 1. Verifica se uma nova imagem foi enviada
         image = validated_data.pop('image', None)
 
-        # 2. Atualiza os campos normalmente
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        # 3. Decisão de como salvar
+        update_fields = list(validated_data.keys())
+
         if image:
-            # Enviou nova imagem: salvamos normalmente (processa a conversão)
             instance.image = image
-            instance.save()
-        else:
-            # NÃO enviou imagem: pulamos o processamento de imagem para evitar o erro do Cloudinary
-            instance.save(skip_image_process=True)
+            update_fields.append('image')
         
+        instance.save(update_fields=update_fields)
         return instance
 
-    # --- Métodos de Leitura ---
     def get_image_url(self, obj):
-        if obj.image:
-            return obj.image.url
-        return None
+        return obj.image.url if obj.image else None
 
     def get_category_name(self, obj):
         return obj.category.name if obj.category else "Sem Categoria"
@@ -89,16 +80,10 @@ class AutoPartSerializer(serializers.ModelSerializer):
         return CategorySerializer(obj.category).data if obj.category else None
 
     def get_veiculos_details(self, obj):
-        return VehicleCompatibilitySerializer(
-            obj.veiculos_compativeis.all(), many=True
-        ).data
+        return VehicleCompatibilitySerializer(obj.veiculos_compativeis.all(), many=True).data
 
     def get_price(self, obj):
-        if hasattr(obj, 'estoque') and obj.estoque.preco:
-            return float(obj.estoque.preco)
-        return 0
+        return float(obj.estoque.preco) if hasattr(obj, 'estoque') and obj.estoque.preco else 0
 
     def get_stock(self, obj):
-        if hasattr(obj, 'estoque'):
-            return obj.estoque.quantidade
-        return 0
+        return obj.estoque.quantidade if hasattr(obj, 'estoque') else 0

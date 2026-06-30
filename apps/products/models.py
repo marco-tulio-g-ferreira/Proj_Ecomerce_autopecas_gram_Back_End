@@ -8,18 +8,14 @@ from django.core.files.uploadedfile import UploadedFile
 import os
 import traceback
 
-# 1. CATEGORIAS DE PEÇAS
 class Category(models.Model):
     name = models.CharField(max_length=100)
-    
     class Meta:
         verbose_name = "Categoria"
         verbose_name_plural = "Categorias"
-        
     def __str__(self):
         return self.name
 
-# 2. TABELA DE VEÍCULOS
 class Veiculo(models.Model):
     marca = models.CharField(max_length=50)
     modelo = models.CharField(max_length=100)
@@ -27,11 +23,9 @@ class Veiculo(models.Model):
     ano = models.IntegerField()
     motor = models.CharField(max_length=50)
     chassi = models.CharField(max_length=17, unique=True, blank=True, null=True)
-    
     def __str__(self):
         return f"{self.marca} {self.modelo} ({self.ano})"
 
-# 3. TABELA DE PRODUTOS
 class Part(models.Model):
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='parts')
     sku = models.CharField(max_length=50, unique=True, db_index=True)
@@ -45,9 +39,6 @@ class Part(models.Model):
     veiculos_compativeis = models.ManyToManyField(Veiculo, related_name="pecas_compativeis", blank=True)
 
     def save(self, *args, **kwargs):
-        # Captura o novo argumento opcional
-        skip_image_process = kwargs.pop('skip_image_process', False)
-
         # Lógica de SKU e OEM
         if self.sku:
             self.sku = self.sku.strip()
@@ -56,8 +47,14 @@ class Part(models.Model):
         else:
             self.codigo_oem = self.codigo_oem.strip()
 
-        # LÓGICA DE CONVERSÃO - Só executa se não pedimos para pular
-        if not skip_image_process and self.image and hasattr(self.image, 'file') and isinstance(self.image.file, UploadedFile):
+        # Verifica campos sendo atualizados
+        update_fields = kwargs.get('update_fields')
+        
+        # Só processa imagem se:
+        # 1. for um salvamento completo (update_fields é None) OU
+        # 2. o campo 'image' estiver explicitamente na lista de atualização
+        if (update_fields is None or 'image' in update_fields) and \
+           self.image and hasattr(self.image, 'file') and isinstance(self.image.file, UploadedFile):
             try:
                 img = Image.open(self.image)
                 if img.format != 'WEBP':
@@ -78,16 +75,13 @@ class Part(models.Model):
     def __str__(self):
         return f"[{self.sku}] {self.name}"
 
-# 4. LOCAIS DE ESTOQUE
 class LocalEstoque(models.Model):
     nome_local = models.CharField(max_length=100)
     prateleira = models.CharField(max_length=50)
     box = models.CharField(max_length=50)
-    
     def __str__(self):
         return f"{self.nome_local} - Prat: {self.prateleira} / Box: {self.box}"
 
-# 5. ESTOQUE (Saldo)
 class Estoque(models.Model):
     produto = models.OneToOneField(Part, on_delete=models.CASCADE, related_name='estoque')
     local = models.ForeignKey(LocalEstoque, on_delete=models.PROTECT)
@@ -98,19 +92,11 @@ class Estoque(models.Model):
     def save(self, *args, **kwargs):
         if self.preco and self.preco >= 100000:
             self.preco = self.preco / 100
-
-        if self.preco > 1000000:
-            print("--- ALERTA: PREÇO AINDA ESTÁ MUITO ALTO APÓS NORMALIZAÇÃO ---")
-            print(f"Produto/SKU: {self.produto.sku if self.produto else 'N/A'}")
-            print(f"Valor final do Preço: {self.preco}") 
-            traceback.print_stack()
-            
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.produto.name} -> {self.quantidade} un"
 
-# 6. MOVIMENTAÇÕES
 class Movimentacao(models.Model):
     TIPO_CHOICES = [('E', 'Entrada'), ('S', 'Saída')]
     produto = models.ForeignKey(Part, on_delete=models.CASCADE)
@@ -118,10 +104,8 @@ class Movimentacao(models.Model):
     quantidade = models.IntegerField()
     data_hora = models.DateTimeField(auto_now_add=True)
     historico_usuario = models.ForeignKey(User, on_delete=models.PROTECT)
-    
     def __str__(self):
-        tipo_display = getattr(self, 'get_tipo_display', lambda: self.tipo)()
-        return f"{tipo_display} - {self.quantidade}x {self.produto.name}"
+        return f"{self.get_tipo_display()} - {self.quantidade}x {self.produto.name}"
 
 class RevisaoDados(models.Model):
     nome_produto = models.CharField(max_length=255)
@@ -130,10 +114,8 @@ class RevisaoDados(models.Model):
     motivo = models.CharField(max_length=255)
     data_criacao = models.DateTimeField(auto_now_add=True)
     resolvido = models.BooleanField(default=False)
-
     class Meta:
         verbose_name = "Revisão de Dados"
         verbose_name_plural = "Revisões de Dados"
-
     def __str__(self):
         return f"{self.nome_produto} - {self.motivo}"
