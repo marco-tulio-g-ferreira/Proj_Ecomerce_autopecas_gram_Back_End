@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from PIL import Image
 import io
 from django.core.files.base import ContentFile
@@ -55,14 +55,25 @@ class Part(models.Model):
         # Lógica de conversão para WebP
         if self.image and hasattr(self.image, 'file'):
             try:
+                # Abre a imagem original
                 img = Image.open(self.image)
+                
+                # Só processa se não for já WebP
                 if img.format != 'WEBP':
                     output = io.BytesIO()
+                    
+                    # Converte para RGB (necessário para salvar PNGs com transparência como WebP)
+                    if img.mode in ("RGBA", "P"):
+                        img = img.convert("RGB")
+                        
                     img.save(output, format='WEBP', quality=85)
                     output.seek(0)
+                    
                     nome_base = os.path.splitext(self.image.name)[0]
+                    # Salva o novo arquivo, mantendo a referência da imagem
                     self.image.save(f"{nome_base}.webp", ContentFile(output.read()), save=False)
             except Exception as e:
+                # Imprime o erro no console do Render, mas deixa o fluxo prosseguir
                 print(f"Erro ao converter imagem para WebP: {e}")
         
         super().save(*args, **kwargs)
@@ -88,12 +99,9 @@ class Estoque(models.Model):
     preco = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     
     def save(self, *args, **kwargs):
-        # GARANTIA: Se o preço veio como um número gigante, divide por 100
-        # Isso corrige os casos de '1093512' que na verdade são '10935.12'
         if self.preco and self.preco >= 100000:
             self.preco = self.preco / 100
 
-        # Debug: mantendo seu log de alerta caso algum valor ainda esteja alto
         if self.preco > 1000000:
             print("--- ALERTA: PREÇO AINDA ESTÁ MUITO ALTO APÓS NORMALIZAÇÃO ---")
             print(f"Produto/SKU: {self.produto.sku if self.produto else 'N/A'}")
@@ -117,7 +125,6 @@ class Movimentacao(models.Model):
     def __str__(self):
         tipo_display = getattr(self, 'get_tipo_display', lambda: self.tipo)()
         return f"{tipo_display} - {self.quantidade}x {self.produto.name}"
-
 
 class RevisaoDados(models.Model):
     nome_produto = models.CharField(max_length=255)
