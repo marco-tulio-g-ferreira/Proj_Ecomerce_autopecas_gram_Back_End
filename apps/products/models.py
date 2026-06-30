@@ -1,10 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
 from decimal import Decimal
-from PIL import Image
-import io
-from django.core.files.base import ContentFile
-from django.core.files.uploadedfile import UploadedFile
 import os
 
 class Category(models.Model):
@@ -41,35 +37,13 @@ class Part(models.Model):
     veiculos_compativeis = models.ManyToManyField(Veiculo, related_name="pecas_compativeis", blank=True)
 
     def save(self, *args, **kwargs):
-        # Lógica de SKU e OEM
+        # Apenas lógica de normalização de texto
         if self.sku:
             self.sku = self.sku.strip()
         if not self.codigo_oem or not self.codigo_oem.strip():
             self.codigo_oem = f"OEM-{self.sku}"
         else:
             self.codigo_oem = self.codigo_oem.strip()
-
-        # Proteção contra erro de Cloudinary:
-        # Só processa imagem se 'image' estiver nos campos a salvar ou for um objeto novo
-        update_fields = kwargs.get('update_fields')
-        
-        # Só executa processamento se for um save completo ou se image estiver na lista de update
-        if (update_fields is None or 'image' in update_fields) and \
-           self.image and hasattr(self.image, 'file') and isinstance(self.image.file, UploadedFile):
-            try:
-                img = Image.open(self.image)
-                if img.format != 'WEBP':
-                    output = io.BytesIO()
-                    if img.mode in ("RGBA", "P"):
-                        img = img.convert("RGB")
-                    img.save(output, format='WEBP', quality=85)
-                    output.seek(0)
-                    
-                    nome_base = os.path.splitext(self.image.name)[0]
-                    self.image.file = ContentFile(output.read())
-                    self.image.name = f"{nome_base}.webp"
-            except Exception as e:
-                print(f"Erro ao converter imagem: {e}")
         
         super().save(*args, **kwargs)
 
