@@ -21,7 +21,9 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'cloudinary_storage', # Adicionado
     'django.contrib.staticfiles',
+    'cloudinary',         # Adicionado
     'rest_framework',
     'corsheaders',
     'django_filters',
@@ -43,10 +45,12 @@ MIDDLEWARE = [
 
 # Configurações de CORS
 CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    "https://proj-ecomerce-autopecas-gram-front-ten.vercel.app",
+    "http://localhost:3000",
+]
 CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
 CORS_ALLOW_HEADERS = ["accept", "authorization", "content-type", "user-agent", "x-csrftoken", "x-requested-with"]
-CORS_ALLOWED_ORIGINS = ["https://proj-ecomerce-autopecas-gram-front.vercel.app",
-"http://localhost:3000",]
 
 ROOT_URLCONF = 'core.urls'
 
@@ -67,8 +71,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# CONFIGURAÇÃO DE BANCO DE DADOS ATUALIZADA
-# Esta configuração lerá a variável DATABASE_URL vinda do Render
+# BANCO DE DADOS
 DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv('DATABASE_URL'),
@@ -76,6 +79,15 @@ DATABASES = {
         ssl_require=True
     )
 }
+
+# CONFIGURAÇÃO CLOUDINARY
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -95,7 +107,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Configurações de segurança para o Render
+
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 REST_FRAMEWORK = {

@@ -2,8 +2,10 @@ asgiref==3.11.1
 beautifulsoup4==4.15.0
 certifi==2026.5.20
 charset-normalizer==3.4.7
+cloudinary==1.44.4
 dj-database-url==3.1.2
 Django==6.0.6
+django-cloudinary-storage==0.3.0
 django-cors-headers==4.9.0
 django-filter==25.2
 djangorestframework==3.17.1
