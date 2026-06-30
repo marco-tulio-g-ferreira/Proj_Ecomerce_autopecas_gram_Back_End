@@ -45,6 +45,9 @@ class Part(models.Model):
     veiculos_compativeis = models.ManyToManyField(Veiculo, related_name="pecas_compativeis", blank=True)
 
     def save(self, *args, **kwargs):
+        # Captura o novo argumento opcional
+        skip_image_process = kwargs.pop('skip_image_process', False)
+
         # Lógica de SKU e OEM
         if self.sku:
             self.sku = self.sku.strip()
@@ -53,10 +56,8 @@ class Part(models.Model):
         else:
             self.codigo_oem = self.codigo_oem.strip()
 
-        # LÓGICA DE CONVERSÃO ROBUSTA
-        # Verificamos se self.image.file existe E se é um upload real (UploadedFile)
-        # Isso impede que o Django tente processar/salvar a imagem novamente em PATCHs que não alteram a foto
-        if self.image and hasattr(self.image, 'file') and isinstance(self.image.file, UploadedFile):
+        # LÓGICA DE CONVERSÃO - Só executa se não pedimos para pular
+        if not skip_image_process and self.image and hasattr(self.image, 'file') and isinstance(self.image.file, UploadedFile):
             try:
                 img = Image.open(self.image)
                 if img.format != 'WEBP':
@@ -67,7 +68,6 @@ class Part(models.Model):
                     output.seek(0)
                     
                     nome_base = os.path.splitext(self.image.name)[0]
-                    # Reescreve o objeto de arquivo apenas se for um novo upload
                     self.image.file = ContentFile(output.read())
                     self.image.name = f"{nome_base}.webp"
             except Exception as e:

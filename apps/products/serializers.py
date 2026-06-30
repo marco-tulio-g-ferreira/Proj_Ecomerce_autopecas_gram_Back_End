@@ -19,7 +19,6 @@ class EstoqueSerializer(serializers.ModelSerializer):
         fields = ['quantidade', 'preco', 'custo']
 
     def validate_preco(self, value):
-        """Validação de sanidade para o preço do estoque."""
         if value > MAX_PRICE_THRESHOLD:
             raise serializers.ValidationError(f"O preço não pode exceder R$ {MAX_PRICE_THRESHOLD}")
         if value < 0:
@@ -27,16 +26,12 @@ class EstoqueSerializer(serializers.ModelSerializer):
         return value
 
 class AutoPartSerializer(serializers.ModelSerializer):
-    # Relacionamentos (Input)
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
     veiculos_compativeis = serializers.PrimaryKeyRelatedField(
         queryset=Veiculo.objects.all(), many=True, required=False
     )
-
-    # Campo para upload (Write-only)
     image = serializers.ImageField(required=False, write_only=True)
 
-    # Campos calculados e de leitura
     image_url = serializers.SerializerMethodField() 
     category_name = serializers.SerializerMethodField()
     estoque = serializers.SerializerMethodField()
@@ -54,29 +49,21 @@ class AutoPartSerializer(serializers.ModelSerializer):
         ]
 
     def update(self, instance, validated_data):
-        """
-        Atualiza a instância garantindo que o save() do model não seja 
-        chamado de forma genérica para evitar erros de permissão com Cloudinary.
-        """
-        # 1. Extraímos a imagem se ela estiver presente
+        # 1. Verifica se uma nova imagem foi enviada
         image = validated_data.pop('image', None)
 
-        # 2. Atualizamos os outros campos manualmente
+        # 2. Atualiza os campos normalmente
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        # 3. Lista dos campos que estão sendo alterados nesta requisição
-        fields_to_update = list(validated_data.keys())
-
-        # 4. Lógica de salvamento condicional
+        # 3. Decisão de como salvar
         if image:
-            # Se uma nova imagem foi enviada, atribuímos e salvamos o objeto completo
+            # Enviou nova imagem: salvamos normalmente (processa a conversão)
             instance.image = image
             instance.save()
         else:
-            # Se não foi enviada imagem, salvamos APENAS os campos alterados
-            # Isso impede que o ImageField (e o Cloudinary) seja processado desnecessariamente
-            instance.save(update_fields=fields_to_update)
+            # NÃO enviou imagem: pulamos o processamento de imagem para evitar o erro do Cloudinary
+            instance.save(skip_image_process=True)
         
         return instance
 
