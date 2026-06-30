@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import Part, Category, Veiculo, Estoque
 from decimal import Decimal
-from .constants import MAX_PRICE_THRESHOLD # Importando o limite definido
+from .constants import MAX_PRICE_THRESHOLD
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -52,6 +52,25 @@ class AutoPartSerializer(serializers.ModelSerializer):
             'is_generic', 'category', 'category_name', 'veiculos_compativeis', 
             'estoque', 'category_details', 'veiculos_details', 'price', 'stock',
         ]
+
+    def update(self, instance, validated_data):
+        """
+        Sobrescreve o update para garantir que, se nenhuma imagem for enviada,
+        o campo image não seja tocado e o método save() do model não tente
+        realizar um upload desnecessário.
+        """
+        # Extraímos a imagem do validated_data, caso ela tenha sido enviada
+        image = validated_data.pop('image', None)
+
+        # Atualiza os outros campos normalmente
+        instance = super().update(instance, validated_data)
+
+        # Só atualizamos a imagem se o usuário realmente enviou um novo arquivo
+        if image:
+            instance.image = image
+            instance.save()
+        
+        return instance
 
     # --- Métodos de Leitura ---
     def get_image_url(self, obj):
