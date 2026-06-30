@@ -55,20 +55,28 @@ class AutoPartSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         """
-        Sobrescreve o update para garantir que, se nenhuma imagem for enviada,
-        o campo image não seja tocado e o método save() do model não tente
-        realizar um upload desnecessário.
+        Atualiza a instância garantindo que o save() do model não seja 
+        chamado de forma genérica para evitar erros de permissão com Cloudinary.
         """
-        # Extraímos a imagem do validated_data, caso ela tenha sido enviada
+        # 1. Extraímos a imagem se ela estiver presente
         image = validated_data.pop('image', None)
 
-        # Atualiza os outros campos normalmente
-        instance = super().update(instance, validated_data)
+        # 2. Atualizamos os outros campos manualmente
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
 
-        # Só atualizamos a imagem se o usuário realmente enviou um novo arquivo
+        # 3. Lista dos campos que estão sendo alterados nesta requisição
+        fields_to_update = list(validated_data.keys())
+
+        # 4. Lógica de salvamento condicional
         if image:
+            # Se uma nova imagem foi enviada, atribuímos e salvamos o objeto completo
             instance.image = image
             instance.save()
+        else:
+            # Se não foi enviada imagem, salvamos APENAS os campos alterados
+            # Isso impede que o ImageField (e o Cloudinary) seja processado desnecessariamente
+            instance.save(update_fields=fields_to_update)
         
         return instance
 
