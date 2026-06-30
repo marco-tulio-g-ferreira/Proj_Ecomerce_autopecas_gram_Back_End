@@ -3,16 +3,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 import dj_database_url
 
-# Carrega as variáveis do arquivo .env
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Usa a variável de ambiente ou um valor padrão para segurança
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-generate-a-new-random-key')
-
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
-
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
 INSTALLED_APPS = [
@@ -71,7 +67,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# BANCO DE DADOS
 DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv('DATABASE_URL'),
@@ -80,26 +75,25 @@ DATABASES = {
     )
 }
 
-# --- CONFIGURAÇÃO DE ARMAZENAMENTO (CORRIGIDA) ---
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
     'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
 }
 
-# Configuração de Storage Moderna para Django 6.0
+# --- CONFIGURAÇÃO DE ARMAZENAMENTO ALTERNATIVA ---
+# Usamos StaticFilesStorage (padrão) para evitar erros de compilação durante o build
 STORAGES = {
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
 }
 
-# Mantido para compatibilidade
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
