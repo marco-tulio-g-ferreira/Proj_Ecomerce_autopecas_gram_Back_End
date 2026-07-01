@@ -2,11 +2,11 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from openpyxl import load_workbook
 import os
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from apps.products.models import Part, Category, LocalEstoque, Estoque
 
 class Command(BaseCommand):
-    help = 'Importa dados de peças a partir de um arquivo Excel'
+    help = 'Importa dados de peças a partir de um arquivo Excel de forma otimizada'
 
     def add_arguments(self, parser):
         parser.add_argument('caminho_excel', type=str, help='Caminho do arquivo na raiz')
@@ -20,76 +20,79 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"❌ Arquivo '{caminho_excel}' não encontrado."))
             return
 
+        # 1. Preparação: Cache em memória
+        self.stdout.write("📥 Carregando dados existentes para o cache...")
         categoria_obj, _ = Category.objects.get_or_create(name=nome_cat)
         local_padrao, _ = LocalEstoque.objects.get_or_create(
             nome_local="Depósito Central",
             defaults={'prateleira': 'A1', 'box': '01'}
         )
 
-        self.stdout.write(self.style.WARNING(f"📊 Processando planilha. Categoria: {nome_cat}"))
-        wb = load_workbook(caminho_excel, data_only=True)
+        # Mapeamento SKU -> Objeto Part
+        parts_map = {p.sku: p for p in Part.objects.all()}
+        # Mapeamento Produto ID -> Objeto Estoque
+        stocks_map = {e.produto_id: e for e in Estoque.objects.filter(local=local_padrao)}
+
+        # 2. Leitura rápida do Excel
+        wb = load_workbook(caminho_excel, data_only=True, read_only=True)
         aba = wb.active
 
-        sucessos = 0
-        erros = 0
+        to_create_parts = []
+        to_update_parts = []
+        to_create_stocks = []
+        to_update_stocks = []
 
-        # Iteramos pelas linhas pulando o cabeçalho (min_row=2)
+        self.stdout.write("⚙️ Processando planilha...")
+        
         for index, linha in enumerate(aba.iter_rows(min_row=2, values_only=True), start=2):
-            # Validação básica
             if not linha or linha[1] is None:
                 continue
 
-            try:
-                # Mapeamento direto das colunas conforme a imagem (A=0, B=1, C=2, D=3)
-                sku_planilha = str(linha[0]).strip() if linha[0] is not None else ""
-                nome_produto = str(linha[1]).strip()
-                qtd_bruta = linha[2]
-                valor_bruto = str(linha[3]).strip() if linha[3] is not None else "0"
+            sku = str(linha[0]).strip() if linha[0] is not None else None
+            nome_produto = str(linha[1]).strip()
+            qtd = int(float(linha[2] or 0))
+            valor_bruto = str(linha[3] or "0").replace("R$", "").replace(".", "").replace(",", ".").strip()
+            preco = Decimal(valor_bruto) if valor_bruto else Decimal("0.00")
 
-                # 1. Processar Quantidade
-                qtd_final = int(float(qtd_bruta)) if qtd_bruta is not None else 0
+            # Lógica de Part
+            if sku and sku in parts_map:
+                part = parts_map[sku]
+                if part.name != nome_produto:
+                    part.name = nome_produto
+                    to_update_parts.append(part)
+            else:
+                part = Part(sku=sku or f"GEN-{index}", name=nome_produto, category=categoria_obj)
+                to_create_parts.append(part)
+                parts_map[part.sku] = part # Registra para o estoque encontrar depois
 
-                # 2. Processar Preço (Corrigido para aceitar milhar e decimal corretamente)
-                # Remove R$, remove todos os pontos (milhar), troca vírgula por ponto (decimal)
-                # Isso funciona tanto para '773.472,00' quanto para '145,00'
-                valor_limpo = valor_bruto.replace("R$", "").replace(".", "").replace(",", ".").strip()
-                try:
-                    preco_final = Decimal(valor_limpo)
-                except InvalidOperation:
-                    preco_final = Decimal("0.00")
+            # Lógica de Estoque
+            # Nota: para estoques novos, o part.id só estará disponível após o save do Part
+            # Se for uma atualização simples, lidamos com os existentes no map
+            if part.id and part.id in stocks_map:
+                stock = stocks_map[part.id]
+                stock.quantidade = qtd
+                stock.preco = preco
+                to_update_stocks.append(stock)
+            else:
+                # Se é uma Part nova, precisamos criar o estoque na fase de processamento 
+                # posterior ou garantir que o objeto esteja ligado
+                to_create_stocks.append(Estoque(produto=part, local=local_padrao, quantidade=qtd, preco=preco))
 
-                # 3. Lógica de Salvamento
-                with transaction.atomic():
-                    # Se temos SKU na coluna 0, usamos ele. Se não, usamos o nome.
-                    if sku_planilha and sku_planilha != "None":
-                        part, _ = Part.objects.update_or_create(
-                            sku=sku_planilha,
-                            defaults={'name': nome_produto, 'category': categoria_obj}
-                        )
-                    else:
-                        # Fallback (caso raro de não ter SKU)
-                        part, _ = Part.objects.update_or_create(
-                            name=nome_produto,
-                            defaults={
-                                'category': categoria_obj,
-                                'sku': f"GEN-{hash(nome_produto) & 0xffffffff}"
-                            }
-                        )
+        # 3. Execução em Bloco (Bulk)
+        self.stdout.write("💾 Salvando no banco de dados...")
+        with transaction.atomic():
+            # Salva Parts
+            if to_create_parts:
+                Part.objects.bulk_create(to_create_parts)
+            if to_update_parts:
+                Part.objects.bulk_update(to_update_parts, ['name'])
 
-                    # Atualiza Estoque
-                    Estoque.objects.update_or_create(
-                        produto=part,
-                        defaults={
-                            'local': local_padrao,
-                            'quantidade': qtd_final,
-                            'preco': preco_final
-                        }
-                    )
+            # Atualiza estoques
+            # Se a Part foi criada via bulk_create, o objeto 'part' agora tem .id (se usar Postgres)
+            # Para outros bancos, pode ser necessário um recarregamento dos IDs
+            if to_create_stocks:
+                Estoque.objects.bulk_create(to_create_stocks)
+            if to_update_stocks:
+                Estoque.objects.bulk_update(to_update_stocks, ['quantidade', 'preco'])
 
-                sucessos += 1
-
-            except Exception as e:
-                self.stdout.write(self.style.ERROR(f"❌ Erro na linha {index}: {e}"))
-                erros += 1
-
-        self.stdout.write(self.style.SUCCESS(f"✅ Concluído! Cadastrados: {sucessos} | Falhas: {erros}"))
+        self.stdout.write(self.style.SUCCESS("✅ Importação concluída com sucesso!"))
