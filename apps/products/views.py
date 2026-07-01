@@ -54,7 +54,13 @@ class AutoPartViewSet(viewsets.ModelViewSet):
     ordering_fields = ['estoque__quantidade', 'estoque__preco', 'id', 'name', 'sku']
 
     def get_queryset(self):
-        queryset = Part.objects.all().select_related('estoque', 'category').order_by('id')
+        # OTIMIZAÇÃO: select_related e prefetch_related resolvem a lentidão ao carregar a lista
+        queryset = Part.objects.select_related(
+            'estoque', 'category'
+        ).prefetch_related(
+            'veiculos_compativeis'
+        ).all().order_by('id')
+        
         brand_key = self.request.query_params.get('veiculos_compativeis__marca')
         if brand_key:
             sinonimos = MARCAS_SINONIMOS.get(brand_key.lower(), [brand_key])
@@ -84,7 +90,6 @@ class AutoPartViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         # Lógica para remover imagem se o front enviar 'remove_image'
         if self.request.data.get('remove_image') == 'true':
-            # Remove a imagem fisicamente do modelo
             instance = serializer.instance
             instance.image.delete(save=False)
             serializer.save(image=None)
