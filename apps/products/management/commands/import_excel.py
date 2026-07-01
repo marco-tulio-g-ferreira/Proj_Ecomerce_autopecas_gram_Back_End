@@ -6,7 +6,7 @@ from decimal import Decimal
 from apps.products.models import Part, Category, LocalEstoque, Estoque
 
 class Command(BaseCommand):
-    help = 'Importa dados de peças a partir de um arquivo Excel de forma otimizada'
+    help = 'Importa dados de peças (Otimizado para Neon Free Tier)'
 
     def add_arguments(self, parser):
         parser.add_argument('caminho_excel', type=str, help='Caminho do arquivo na raiz')
@@ -15,13 +15,16 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         caminho_excel = kwargs['caminho_excel']
         nome_cat = kwargs['categoria']
+        
+        # Tamanho do lote para Neon Free Tier (evita timeout de transação)
+        BATCH_SIZE = 500
 
         if not os.path.exists(caminho_excel):
             self.stdout.write(self.style.ERROR(f"❌ Arquivo '{caminho_excel}' não encontrado."))
             return
 
-        # 1. Preparação: Cache em memória
-        self.stdout.write("📥 Carregando dados existentes para o cache...")
+        # 1. Preparação
+        self.stdout.write("📥 Carregando cache...")
         categoria_obj, _ = Category.objects.get_or_create(name=nome_cat)
         local_padrao, _ = LocalEstoque.objects.get_or_create(
             nome_local="Depósito Central",
@@ -31,7 +34,6 @@ class Command(BaseCommand):
         parts_map = {p.sku: p for p in Part.objects.all()}
         stocks_map = {e.produto_id: e for e in Estoque.objects.filter(local=local_padrao)}
 
-        # 2. Leitura rápida do Excel
         wb = load_workbook(caminho_excel, data_only=True, read_only=True)
         aba = wb.active
 
@@ -39,8 +41,6 @@ class Command(BaseCommand):
         to_update_parts = []
         to_create_stocks = []
         to_update_stocks = []
-        
-        # Mapeia SKUs que precisam ter estoque criado logo após o bulk_create de parts
         sku_to_stock_data = {}
 
         self.stdout.write("⚙️ Processando planilha...")
@@ -55,14 +55,12 @@ class Command(BaseCommand):
             valor_bruto = str(linha[3] or "0").replace("R$", "").replace(".", "").replace(",", ".").strip()
             preco = Decimal(valor_bruto) if valor_bruto else Decimal("0.00")
 
-            # Lógica de Part
             if sku and sku in parts_map:
                 part = parts_map[sku]
                 if part.name != nome_produto:
                     part.name = nome_produto
                     to_update_parts.append(part)
                 
-                # Se a peça já existe, verificamos o estoque
                 if part.id in stocks_map:
                     stock = stocks_map[part.id]
                     stock.quantidade = qtd
@@ -71,20 +69,18 @@ class Command(BaseCommand):
                 else:
                     to_create_stocks.append(Estoque(produto=part, local=local_padrao, quantidade=qtd, preco=preco))
             else:
-                # Part nova
                 part = Part(sku=sku or f"GEN-{index}", name=nome_produto, category=categoria_obj)
                 to_create_parts.append(part)
-                # Guardamos os dados do estoque para criar depois que o Part tiver ID
                 sku_to_stock_data[part.sku] = {'qtd': qtd, 'preco': preco}
                 parts_map[part.sku] = part 
 
-        # 3. Execução em Bloco (Bulk)
-        self.stdout.write("💾 Salvando no banco de dados...")
+        # 2. Execução (Bulk + Batch Size)
+        self.stdout.write(f"💾 Salvando no banco (Batch Size: {BATCH_SIZE})...")
         with transaction.atomic():
-            # A. Salva/Atualiza Parts
+            # A. Salva Parts
             if to_create_parts:
-                Part.objects.bulk_create(to_create_parts)
-                # Recarrega os objetos criados para obter os IDs gerados pelo banco
+                Part.objects.bulk_create(to_create_parts, batch_size=BATCH_SIZE)
+                # Recarrega apenas o necessário após a criação
                 new_parts = Part.objects.filter(sku__in=[p.sku for p in to_create_parts])
                 for p in new_parts:
                     stock_data = sku_to_stock_data.get(p.sku)
@@ -95,12 +91,12 @@ class Command(BaseCommand):
                         ))
             
             if to_update_parts:
-                Part.objects.bulk_update(to_update_parts, ['name'])
+                Part.objects.bulk_update(to_update_parts, ['name'], batch_size=BATCH_SIZE)
 
             # B. Salva/Atualiza Estoques
             if to_create_stocks:
-                Estoque.objects.bulk_create(to_create_stocks)
+                Estoque.objects.bulk_create(to_create_stocks, batch_size=BATCH_SIZE)
             if to_update_stocks:
-                Estoque.objects.bulk_update(to_update_stocks, ['quantidade', 'preco'])
+                Estoque.objects.bulk_update(to_update_stocks, ['quantidade', 'preco'], batch_size=BATCH_SIZE)
 
         self.stdout.write(self.style.SUCCESS("✅ Importação concluída com sucesso!"))
