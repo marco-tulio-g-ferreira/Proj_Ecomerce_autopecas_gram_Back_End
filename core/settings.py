@@ -19,7 +19,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'cloudinary_storage', 
     'django.contrib.staticfiles',
-    'cloudinary',         
+    'cloudinary',          
     'rest_framework',
     'corsheaders',
     'django_filters',
@@ -42,6 +42,7 @@ MIDDLEWARE = [
 # Configurações de CORS
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
+    "https://proj-ecomerce-autopecas-gram-front-end-ixcg-aai5txlz9.vercel.app",
     "https://proj-ecomerce-autopecas-gram-front-ten.vercel.app",
     "http://localhost:3000",
 ]
@@ -82,7 +83,6 @@ CLOUDINARY_STORAGE = {
 }
 
 # --- CONFIGURAÇÃO DE ARMAZENAMENTO ALTERNATIVA ---
-# Usamos StaticFilesStorage (padrão) para evitar erros de compilação durante o build
 STORAGES = {
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
