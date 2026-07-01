@@ -2,14 +2,27 @@ from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from .models import Part, Estoque, LocalEstoque
 
+# Variável para cache do local, evitando consultas repetidas ao banco
+_LOCAL_PADRAO = None
+
+def get_local_padrao():
+    """Retorna o local padrão, criando-o se não existir, e mantendo em cache."""
+    global _LOCAL_PADRAO
+    if _LOCAL_PADRAO is None:
+        _LOCAL_PADRAO, _ = LocalEstoque.objects.get_or_create(
+            nome_local="Padrão",
+            defaults={'prateleira': 'A1', 'box': 'B1'}
+        )
+    return _LOCAL_PADRAO
+
 # --- 1. CRIAÇÃO DE ESTOQUE ---
 @receiver(post_save, sender=Part)
 def configurar_novo_produto(sender, instance, created, **kwargs):
     if created:
-        local, _ = LocalEstoque.objects.get_or_create(
-            nome_local="Padrão",
-            defaults={'prateleira': 'A1', 'box': 'B1'}
-        )
+        # Usa o cache para evitar SELECT desnecessário
+        local = get_local_padrao()
+        
+        # Criamos o estoque inicial
         Estoque.objects.create(
             produto=instance,
             local=local,
@@ -22,7 +35,6 @@ def configurar_novo_produto(sender, instance, created, **kwargs):
 @receiver(post_delete, sender=Part)
 def delete_image_on_delete(sender, instance, **kwargs):
     if instance.image:
-        # Usa o storage nativo do campo para ser compatível com Cloudinary/Local
         storage = instance.image.storage
         if storage.exists(instance.image.name):
             storage.delete(instance.image.name)
@@ -35,13 +47,12 @@ def delete_image_on_change(sender, instance, **kwargs):
         return
 
     try:
-        # Busca o objeto antigo no banco de dados para comparar
+        # Busca o objeto antigo no banco para comparar
         old_instance = sender.objects.get(pk=instance.pk)
     except sender.DoesNotExist:
         return
 
-    # Se a imagem mudou ou está sendo setada como vazia
-    # Se a nova imagem for diferente da antiga, removemos a antiga
+    # Se a imagem mudou ou está sendo setada como vazia, removemos a antiga
     if old_instance.image and old_instance.image != instance.image:
         storage = old_instance.image.storage
         
