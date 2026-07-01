@@ -28,9 +28,7 @@ class Command(BaseCommand):
             defaults={'prateleira': 'A1', 'box': '01'}
         )
 
-        # Mapeamento SKU -> Objeto Part
         parts_map = {p.sku: p for p in Part.objects.all()}
-        # Mapeamento Produto ID -> Objeto Estoque
         stocks_map = {e.produto_id: e for e in Estoque.objects.filter(local=local_padrao)}
 
         # 2. Leitura rápida do Excel
@@ -41,6 +39,9 @@ class Command(BaseCommand):
         to_update_parts = []
         to_create_stocks = []
         to_update_stocks = []
+        
+        # Mapeia SKUs que precisam ter estoque criado logo após o bulk_create de parts
+        sku_to_stock_data = {}
 
         self.stdout.write("⚙️ Processando planilha...")
         
@@ -60,36 +61,43 @@ class Command(BaseCommand):
                 if part.name != nome_produto:
                     part.name = nome_produto
                     to_update_parts.append(part)
+                
+                # Se a peça já existe, verificamos o estoque
+                if part.id in stocks_map:
+                    stock = stocks_map[part.id]
+                    stock.quantidade = qtd
+                    stock.preco = preco
+                    to_update_stocks.append(stock)
+                else:
+                    to_create_stocks.append(Estoque(produto=part, local=local_padrao, quantidade=qtd, preco=preco))
             else:
+                # Part nova
                 part = Part(sku=sku or f"GEN-{index}", name=nome_produto, category=categoria_obj)
                 to_create_parts.append(part)
-                parts_map[part.sku] = part # Registra para o estoque encontrar depois
-
-            # Lógica de Estoque
-            # Nota: para estoques novos, o part.id só estará disponível após o save do Part
-            # Se for uma atualização simples, lidamos com os existentes no map
-            if part.id and part.id in stocks_map:
-                stock = stocks_map[part.id]
-                stock.quantidade = qtd
-                stock.preco = preco
-                to_update_stocks.append(stock)
-            else:
-                # Se é uma Part nova, precisamos criar o estoque na fase de processamento 
-                # posterior ou garantir que o objeto esteja ligado
-                to_create_stocks.append(Estoque(produto=part, local=local_padrao, quantidade=qtd, preco=preco))
+                # Guardamos os dados do estoque para criar depois que o Part tiver ID
+                sku_to_stock_data[part.sku] = {'qtd': qtd, 'preco': preco}
+                parts_map[part.sku] = part 
 
         # 3. Execução em Bloco (Bulk)
         self.stdout.write("💾 Salvando no banco de dados...")
         with transaction.atomic():
-            # Salva Parts
+            # A. Salva/Atualiza Parts
             if to_create_parts:
                 Part.objects.bulk_create(to_create_parts)
+                # Recarrega os objetos criados para obter os IDs gerados pelo banco
+                new_parts = Part.objects.filter(sku__in=[p.sku for p in to_create_parts])
+                for p in new_parts:
+                    stock_data = sku_to_stock_data.get(p.sku)
+                    if stock_data:
+                        to_create_stocks.append(Estoque(
+                            produto=p, local=local_padrao, 
+                            quantidade=stock_data['qtd'], preco=stock_data['preco']
+                        ))
+            
             if to_update_parts:
                 Part.objects.bulk_update(to_update_parts, ['name'])
 
-            # Atualiza estoques
-            # Se a Part foi criada via bulk_create, o objeto 'part' agora tem .id (se usar Postgres)
-            # Para outros bancos, pode ser necessário um recarregamento dos IDs
+            # B. Salva/Atualiza Estoques
             if to_create_stocks:
                 Estoque.objects.bulk_create(to_create_stocks)
             if to_update_stocks:
